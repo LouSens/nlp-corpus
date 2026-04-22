@@ -1,24 +1,17 @@
 """
 corpus_builder.py
 ─────────────────────────────────────────────────────────────────
-Helper script to MERGE all your source text files into one corpus.txt
-Run this BEFORE nlp_preprocessing.py.
+Builds corpus.txt from the Kaggle Financial PhraseBank dataset.
 
-Usage:
-    1. Place all your source .txt files in the sources/ folder.
-    2. Run:  python corpus_builder.py
-    3. A validated corpus.txt is created in the working directory.
+Sources read (both formats from the Kaggle download):
+  sources/all-data.csv                        ← format: label,sentence
+  sources/FinancialPhraseBank/*.txt           ← format: sentence@label
 
-Source files for Financial News Sentiment Analysis corpus:
-  ─ financial_news_1.txt      (Reuters financial articles)
-  ─ financial_news_2.txt      (Bloomberg opinion pieces)
-  ─ annual_reports.txt        (SEC 10-K filing excerpts)
-  ─ economic_forecasts.txt    (IMF / World Bank reports)
-  ─ earnings_calls.txt        (Earnings call transcripts)
-  ─ market_commentary.txt     (Analyst notes and commentary)
+Run BEFORE nlp_preprocessing.py:
+    python corpus_builder.py
 """
 
-import os
+import csv
 import sys
 import logging
 from pathlib import Path
@@ -27,73 +20,178 @@ from datetime import datetime
 logging.basicConfig(level=logging.INFO, format="[%(levelname)s] %(message)s")
 log = logging.getLogger(__name__)
 
-# ── CONFIGURE SOURCE FOLDER ───────────────────────────────────────────────────
-SOURCES_DIR    = Path("sources")
-OUTPUT_FILE    = Path("corpus.txt")
-ENCODING       = "utf-8"
-MIN_WORD_COUNT = 25_000
+# ── PATHS ─────────────────────────────────────────────────────────────────────
+SOURCES_DIR  = Path("sources")
+OUTPUT_FILE  = Path("corpus.txt")
+ENCODING     = "utf-8"
+MIN_WORDS    = 25_000
+
+# Which FinancialPhraseBank agreement-level files to include
+# AllAgree = only sentences all annotators agreed on (highest quality)
+# 50Agree  = broader coverage (more sentences, some label disagreement)
+PHRASEBANK_FILES = [
+    "Sentences_AllAgree.txt",
+    "Sentences_50Agree.txt",
+]
+
+
+# ── READERS ───────────────────────────────────────────────────────────────────
+
+def read_all_data_csv(path: Path) -> list[tuple[str, str]]:
+    """
+    Reads sources/all-data.csv.
+    Format: label,sentence  (no header row, latin-1 encoded)
+    Returns list of (label, sentence) tuples.
+    """
+    records = []
+    try:
+        with open(path, encoding="latin-1", newline="") as f:
+            reader = csv.reader(f)
+            for row in reader:
+                if len(row) >= 2:
+                    label    = row[0].strip().lower()
+                    sentence = row[1].strip()
+                    if sentence:
+                        records.append((label, sentence))
+        log.info(f"  ✓ {path.name:<40}  {len(records):>6,} sentences  (label,sentence CSV)")
+    except Exception as e:
+        log.error(f"  ✗ Failed to read {path}: {e}")
+    return records
+
+
+def read_phrasebank_txt(path: Path) -> list[tuple[str, str]]:
+    """
+    Reads a FinancialPhraseBank .txt file.
+    Format: sentence@label  (latin-1 encoded)
+    Returns list of (label, sentence) tuples.
+    """
+    records = []
+    try:
+        with open(path, encoding="latin-1") as f:
+            for line in f:
+                line = line.strip()
+                if "@" not in line:
+                    continue
+                sentence, _, label = line.rpartition("@")
+                sentence = sentence.strip()
+                label    = label.strip().lower()
+                if sentence:
+                    records.append((label, sentence))
+        log.info(f"  ✓ {path.name:<40}  {len(records):>6,} sentences  (sentence@label TXT)")
+    except Exception as e:
+        log.error(f"  ✗ Failed to read {path}: {e}")
+    return records
+
+
+def format_block(records: list[tuple[str, str]], source_name: str) -> str:
+    """
+    Formats a list of (label, sentence) records into a readable corpus block.
+    Each line: [LABEL]  sentence
+    """
+    lines = [
+        f"\n{'─' * 70}",
+        f"SOURCE: {source_name}",
+        f"SENTENCES: {len(records):,}",
+        f"{'─' * 70}\n",
+    ]
+    for label, sentence in records:
+        lines.append(f"[{label.upper():8}]  {sentence}")
+    return "\n".join(lines)
+
+
+# ── MAIN BUILD ────────────────────────────────────────────────────────────────
 
 def build_corpus():
     log.info("Corpus Builder — Financial News Sentiment Analysis")
     log.info("=" * 60)
 
-    if not SOURCES_DIR.exists():
-        SOURCES_DIR.mkdir()
-        log.warning(
-            f"Created empty 'sources/' folder.\n"
-            f"  Please add your .txt source files to: {SOURCES_DIR.resolve()}\n"
-            f"  Then re-run this script."
-        )
-        sys.exit(0)
+    all_records: list[tuple[str, str]] = []
+    corpus_blocks: list[str] = []
+    seen_sentences: set[str] = set()   # deduplication
 
-    txt_files = sorted(SOURCES_DIR.glob("*.txt"))
-    if not txt_files:
-        log.error(f"No .txt files found in '{SOURCES_DIR}'. Add your source files first.")
+    # ── 1. Read sources/all-data.csv ─────────────────────────────────────────
+    csv_path = SOURCES_DIR / "all-data.csv"
+    if csv_path.exists():
+        records = read_all_data_csv(csv_path)
+        unique = [(l, s) for l, s in records if s not in seen_sentences]
+        seen_sentences.update(s for _, s in unique)
+        all_records.extend(unique)
+        corpus_blocks.append(format_block(unique, "Kaggle Financial PhraseBank — all-data.csv"))
+    else:
+        log.warning(f"  sources/all-data.csv not found — skipping.")
+
+    # ── 2. Read FinancialPhraseBank/*.txt ────────────────────────────────────
+    pb_dir = SOURCES_DIR / "FinancialPhraseBank"
+    if pb_dir.is_dir():
+        for fname in PHRASEBANK_FILES:
+            fpath = pb_dir / fname
+            if not fpath.exists():
+                log.warning(f"  {fpath} not found — skipping.")
+                continue
+            records = read_phrasebank_txt(fpath)
+            unique = [(l, s) for l, s in records if s not in seen_sentences]
+            seen_sentences.update(s for _, s in unique)
+            if unique:
+                all_records.extend(unique)
+                corpus_blocks.append(format_block(unique, f"FinancialPhraseBank/{fname}"))
+            else:
+                log.info(f"  (all sentences in {fname} already seen — skipped as duplicates)")
+    else:
+        log.warning("  sources/FinancialPhraseBank/ folder not found — skipping.")
+
+    # ── Validate ──────────────────────────────────────────────────────────────
+    if not all_records:
+        log.error("No data collected. Check that sources/ contains the Kaggle files.")
         sys.exit(1)
 
-    log.info(f"Found {len(txt_files)} source file(s):")
-    combined_parts = []
-    total_words    = 0
+    # ── Corpus text ───────────────────────────────────────────────────────────
+    # For NLP preprocessing we only need the sentence text (labels are metadata).
+    # We embed them as readable tags so the preprocessing pipeline stays clean.
+    full_corpus_text = "\n".join(corpus_blocks)
+    word_count = len(full_corpus_text.split())
 
-    for fpath in txt_files:
-        try:
-            text = fpath.read_text(encoding=ENCODING, errors="replace").strip()
-            wc   = len(text.split())
-            total_words += wc
-            log.info(f"  ✓ {fpath.name:<35}  {wc:>8,} words")
-            # Add a clear separator between sources
-            combined_parts.append(f"\n\n{'─' * 60}\n")
-            combined_parts.append(f"SOURCE: {fpath.name}\n")
-            combined_parts.append(f"{'─' * 60}\n\n")
-            combined_parts.append(text)
-        except Exception as e:
-            log.error(f"  ✗ Failed to read {fpath.name}: {e}")
+    # Breakdown by sentiment label
+    from collections import Counter
+    label_counts = Counter(label for label, _ in all_records)
 
-    # ── Write merged corpus ───────────────────────────────────────────────────
+    # ── Write corpus.txt ──────────────────────────────────────────────────────
     header = (
         f"CORPUS: Financial News Sentiment Analysis\n"
+        f"Source: Kaggle — Financial PhraseBank (Malo et al., 2014)\n"
         f"Built : {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n"
-        f"Files : {len(txt_files)}\n"
-        f"Words : {total_words:,}\n"
+        f"{'─' * 60}\n"
+        f"Total sentences : {len(all_records):,}\n"
+        f"  Positive      : {label_counts.get('positive', 0):,}\n"
+        f"  Negative      : {label_counts.get('negative', 0):,}\n"
+        f"  Neutral       : {label_counts.get('neutral',  0):,}\n"
+        f"Total words     : {word_count:,}\n"
         f"{'=' * 60}\n\n"
     )
 
     with open(OUTPUT_FILE, "w", encoding=ENCODING) as fh:
         fh.write(header)
-        fh.write("\n".join(combined_parts))
+        fh.write(full_corpus_text)
 
-    log.info(f"\nTotal merged words : {total_words:,}")
-    log.info(f"Output file        : {OUTPUT_FILE.resolve()}")
+    # ── Report ────────────────────────────────────────────────────────────────
+    log.info("")
+    log.info(f"  Total sentences collected : {len(all_records):,}")
+    log.info(f"    Positive                : {label_counts.get('positive', 0):,}")
+    log.info(f"    Negative                : {label_counts.get('negative', 0):,}")
+    log.info(f"    Neutral                 : {label_counts.get('neutral',  0):,}")
+    log.info(f"  Total words in corpus.txt : {word_count:,}")
+    log.info(f"  Output file               : {OUTPUT_FILE.resolve()}")
 
-    if total_words < MIN_WORD_COUNT:
+    if word_count < MIN_WORDS:
         log.warning(
-            f"WARNING: {total_words:,} words is below the {MIN_WORD_COUNT:,} minimum.\n"
-            f"  Add more source files to reach the requirement."
+            f"\n  ⚠  Only {word_count:,} words — need {MIN_WORDS - word_count:,} more "
+            f"to meet the {MIN_WORDS:,}-word minimum.\n"
+            f"  → Include Sentences_50Agree.txt or Sentences_75Agree.txt in PHRASEBANK_FILES."
         )
     else:
-        log.info(f"✓ Corpus meets the {MIN_WORD_COUNT:,}-word minimum requirement.")
+        log.info(f"\n  ✓  Corpus meets the {MIN_WORDS:,}-word minimum requirement.")
 
-    log.info("\nNext step: run  python nlp_preprocessing.py")
+    log.info("\nNext step: python nlp_preprocessing.py")
+
 
 if __name__ == "__main__":
     build_corpus()

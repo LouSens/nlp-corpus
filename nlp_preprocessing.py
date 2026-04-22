@@ -99,10 +99,9 @@ def bootstrap() -> Path:
     ]
     for pkg in required_packages:
         try:
-            nltk.data.find(f"tokenizers/{pkg}")
-        except LookupError:
-            log.info(f"  Downloading NLTK resource: {pkg}")
             nltk.download(pkg, quiet=True)
+        except Exception as e:
+            log.debug(f"  Failed to download {pkg}: {e}")
 
     output_dir = Path(CONFIG["output_dir"])
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -586,7 +585,7 @@ def stage_vocabulary(word_tokens: List[str], lemmas: List[str], output_dir: Path
     print(f"  After lemmatisation, the vocabulary reduces to {vocab_size_lemma:,} unique")
     print(f"  base forms — a reduction of {vocab_size_raw - vocab_size_lemma:,} morphological variants.")
     print(f"  This reduction improves downstream model generalisation by collapsing")
-    print(f"  inflected forms (e.g., 'rising', 'rose', 'risen' → 'rise') into a")
+    print(f"  inflected forms (e.g., 'rising', 'rose', 'risen' -> 'rise') into a")
     print(f"  single canonical representation.")
     print("=" * 72 + "\n")
 
@@ -619,7 +618,7 @@ def print_summary(raw_text: str, sentences: List[str], word_tokens: List[str],
     print(f"  Type–Token Ratio (TTR)     : {vocab_stats['ttr']:>12.4f}")
     print(f"\n  Top 5 {CONFIG['ngram_type']}s:")
     for i, (gram, cnt) in enumerate(ngrams_result[:5], 1):
-        print(f"    {i}. {'  '.join(gram):<30} → {cnt:,}")
+        print(f"    {i}. {'  '.join(gram):<30} -> {cnt:,}")
     print(f"\n  Output files saved to: {output_dir.resolve()}")
     files = [CONFIG["tokens_file"], CONFIG["freq_plot_file"],
              CONFIG["ngram_file"], CONFIG["lemma_file"], CONFIG["vocab_file"]]
