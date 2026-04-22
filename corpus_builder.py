@@ -3,9 +3,8 @@ corpus_builder.py
 ─────────────────────────────────────────────────────────────────
 Builds corpus.txt from the Kaggle Financial PhraseBank dataset.
 
-Sources read (both formats from the Kaggle download):
-  sources/all-data.csv                        ← format: label,sentence
-  sources/FinancialPhraseBank/*.txt           ← format: sentence@label
+Sources read:
+  sources/*.txt           ← format: sentence@label
 
 Run BEFORE nlp_preprocessing.py:
     python corpus_builder.py
@@ -37,26 +36,6 @@ PHRASEBANK_FILES = [
 
 # ── READERS ───────────────────────────────────────────────────────────────────
 
-def read_all_data_csv(path: Path) -> list[tuple[str, str]]:
-    """
-    Reads sources/all-data.csv.
-    Format: label,sentence  (no header row, latin-1 encoded)
-    Returns list of (label, sentence) tuples.
-    """
-    records = []
-    try:
-        with open(path, encoding="latin-1", newline="") as f:
-            reader = csv.reader(f)
-            for row in reader:
-                if len(row) >= 2:
-                    label    = row[0].strip().lower()
-                    sentence = row[1].strip()
-                    if sentence:
-                        records.append((label, sentence))
-        log.info(f"  ✓ {path.name:<40}  {len(records):>6,} sentences  (label,sentence CSV)")
-    except Exception as e:
-        log.error(f"  ✗ Failed to read {path}: {e}")
-    return records
 
 
 def read_phrasebank_txt(path: Path) -> list[tuple[str, str]]:
@@ -109,35 +88,20 @@ def build_corpus():
     corpus_blocks: list[str] = []
     seen_sentences: set[str] = set()   # deduplication
 
-    # ── 1. Read sources/all-data.csv ─────────────────────────────────────────
-    csv_path = SOURCES_DIR / "all-data.csv"
-    if csv_path.exists():
-        records = read_all_data_csv(csv_path)
+    # ── 1. Read sources/*.txt ────────────────────────────────────────────────
+    for fname in PHRASEBANK_FILES:
+        fpath = SOURCES_DIR / fname
+        if not fpath.exists():
+            log.warning(f"  {fpath} not found — skipping.")
+            continue
+        records = read_phrasebank_txt(fpath)
         unique = [(l, s) for l, s in records if s not in seen_sentences]
         seen_sentences.update(s for _, s in unique)
-        all_records.extend(unique)
-        corpus_blocks.append(format_block(unique, "Kaggle Financial PhraseBank — all-data.csv"))
-    else:
-        log.warning(f"  sources/all-data.csv not found — skipping.")
-
-    # ── 2. Read FinancialPhraseBank/*.txt ────────────────────────────────────
-    pb_dir = SOURCES_DIR / "FinancialPhraseBank"
-    if pb_dir.is_dir():
-        for fname in PHRASEBANK_FILES:
-            fpath = pb_dir / fname
-            if not fpath.exists():
-                log.warning(f"  {fpath} not found — skipping.")
-                continue
-            records = read_phrasebank_txt(fpath)
-            unique = [(l, s) for l, s in records if s not in seen_sentences]
-            seen_sentences.update(s for _, s in unique)
-            if unique:
-                all_records.extend(unique)
-                corpus_blocks.append(format_block(unique, f"FinancialPhraseBank/{fname}"))
-            else:
-                log.info(f"  (all sentences in {fname} already seen — skipped as duplicates)")
-    else:
-        log.warning("  sources/FinancialPhraseBank/ folder not found — skipping.")
+        if unique:
+            all_records.extend(unique)
+            corpus_blocks.append(format_block(unique, f"sources/{fname}"))
+        else:
+            log.info(f"  (all sentences in {fname} already seen — skipped as duplicates)")
 
     # ── Validate ──────────────────────────────────────────────────────────────
     if not all_records:
