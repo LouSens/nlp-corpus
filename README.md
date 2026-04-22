@@ -6,14 +6,14 @@ Assignment:  Specialized Corpus & NLP Preprocessing
 ─────────────────────────────────────────────────
 FOLDER STRUCTURE
 ─────────────────────────────────────────────────
-nlp_pipeline/
+nlp-corpus/
+├── corpus.txt             ← Built by Step 1 (or pre-existing)
 ├── corpus_builder.py      ← Step 1: Merges source files
 ├── nlp_preprocessing.py   ← Step 2: Full preprocessing pipeline
 ├── requirements.txt       ← Python dependencies
-├── sources/               ← PUT YOUR SOURCE .txt FILES HERE
-│   ├── financial_news_1.txt
-│   ├── annual_reports.txt
-│   └── ...
+├── sources/               ← Kaggle Financial PhraseBank dataset
+│   ├── Sentences_AllAgree.txt
+│   └── Sentences_50Agree.txt
 └── nlp_output/            ← AUTO-CREATED by pipeline
     ├── tokens.txt
     ├── freq_plot.png
@@ -38,8 +38,10 @@ STEP 2 — Download NLTK Data
 ─────────────────────────────────────────────────
 STEP 3 — Add Source Files
 ─────────────────────────────────────────────────
-    Place all your collected text files (.txt) inside the sources/ folder.
-    Each file = one source (news article collection, report set, etc.)
+    Download the Kaggle Financial PhraseBank dataset.
+    Place the following files inside the sources/ folder:
+      - Sentences_AllAgree.txt
+      - Sentences_50Agree.txt
     Combined total must exceed 25,000 words.
 
 ─────────────────────────────────────────────────
@@ -47,8 +49,8 @@ STEP 4 — Build corpus.txt
 ─────────────────────────────────────────────────
     python corpus_builder.py
 
-    This merges all source files into a single corpus.txt
-    and prints a word count validation.
+    This merges the PhraseBank source files into a single corpus.txt
+    and prints a word count validation (must be >= 25,000 words).
 
 ─────────────────────────────────────────────────
 STEP 5 — Run Preprocessing Pipeline
