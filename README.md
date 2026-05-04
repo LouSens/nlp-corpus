@@ -1,7 +1,8 @@
 # NLP PREPROCESSING PIPELINE — SETUP & RUN GUIDE
 
 **Application:** Financial News Sentiment Analysis  
-**Assignment:** Specialized Corpus & NLP Preprocessing
+**Assignment:** Specialized Corpus & NLP Preprocessing  
+**Corpus Method:** Web Scraping (no Kaggle dataset required)
 
 ---
 
@@ -9,13 +10,10 @@
 
 ```text
 nlp-corpus/
-├── corpus.txt             ← Built by Step 1 (or pre-existing)
-├── corpus_builder.py      ← Step 1: Merges source files
-├── nlp_preprocessing.py   ← Step 2: Full preprocessing pipeline
+├── corpus.txt             ← AUTO-BUILT by Step 3 (web scraping)
+├── corpus_builder.py      ← Step 3: Scrapes & builds corpus.txt
+├── nlp_preprocessing.py   ← Step 4: Full preprocessing pipeline
 ├── requirements.txt       ← Python dependencies
-├── sources/               ← Kaggle Financial PhraseBank dataset
-│   ├── Sentences_AllAgree.txt
-│   └── Sentences_50Agree.txt
 └── nlp_output/            ← AUTO-CREATED by pipeline
     ├── tokens.txt
     ├── freq_plot.png
@@ -26,11 +24,31 @@ nlp-corpus/
 
 ---
 
+## Corpus Sources (All Free, No API Key Required)
+
+| Source | Type | How accessed |
+|--------|------|-------------|
+| Yahoo Finance | RSS feed headlines + summaries | Public RSS URL |
+| Reuters Business | RSS feed | Public RSS URL |
+| MarketWatch | RSS feed | Public RSS URL |
+| CNBC Finance / Economy / Earnings | RSS feed | Public RSS URL |
+| Investing.com | RSS feed | Public RSS URL |
+| Seeking Alpha | RSS feed | Public RSS URL |
+| Nasdaq | RSS feed | Public RSS URL |
+| Wikipedia (~39 finance articles) | Article prose | `action=raw` (no key) |
+
+> **Total target: ≥ 25,000 words** — met primarily by Wikipedia articles with RSS supplementing.
+
+---
+
 ## STEP 1 — Install Dependencies
 
 ```bash
 pip install -r requirements.txt
 ```
+
+> No extra packages are needed beyond what's already in `requirements.txt`.  
+> The scraper uses only Python standard library (`urllib`, `xml.etree.ElementTree`, `html.parser`).
 
 ---
 
@@ -46,27 +64,26 @@ for pkg in ['punkt','punkt_tab','averaged_perceptron_tagger','wordnet','stopword
 
 ---
 
-## STEP 3 — Add Source Files
-
-1. Download the **Kaggle Financial PhraseBank** dataset.
-2. Place the following files inside the `sources/` folder:
-   - `Sentences_AllAgree.txt`
-   - `Sentences_50Agree.txt`
-3. *Note: Combined total must exceed 25,000 words.*
-
----
-
-## STEP 4 — Build `corpus.txt`
+## STEP 3 — Build `corpus.txt` via Web Scraping
 
 ```bash
 python corpus_builder.py
 ```
 
-This merges the PhraseBank source files into a single `corpus.txt` and prints a word count validation (must be >= 25,000 words).
+This script will:
+1. **Phase 1** — Fetch headlines + summaries from ~13 financial RSS feeds
+2. **Phase 2** — Scrape ~39 Wikipedia finance articles (raw wikitext, cleaned to prose)
+3. Deduplicate all text (SHA-1 content hashing)
+4. Assemble and write `corpus.txt`
+5. Validate ≥ 25,000 words
+
+Expected runtime: **3–5 minutes** (polite 1.5 s delay between requests).
+
+> **If some RSS feeds are blocked** on your network, Wikipedia articles alone provide well over 25,000 words.
 
 ---
 
-## STEP 5 — Run Preprocessing Pipeline
+## STEP 4 — Run Preprocessing Pipeline
 
 ```bash
 python nlp_preprocessing.py
@@ -108,6 +125,24 @@ In `nlp_preprocessing.py`, simply change:
 ```python
 "ngram_type": "bigram"   # change to "trigram"
 ```
+
+---
+
+## If You Need More Words
+
+Add more entries to `WIKIPEDIA_ARTICLES` in `corpus_builder.py`:
+
+```python
+WIKIPEDIA_ARTICLES = [
+    ...
+    "Capital_market",
+    "Commodity_market",
+    "Derivatives_market",
+    ...
+]
+```
+
+Or add extra RSS feed URLs to `RSS_FEEDS`. Each Wikipedia article adds ~2,000–8,000 words.
 
 ---
 
