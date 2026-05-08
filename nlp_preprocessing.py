@@ -155,13 +155,13 @@ def stage_tokenization(raw_text: str, output_dir: Path) -> Tuple[List[str], List
     Pipeline:
         raw_text
           ─→ sent_tokenize()         →  sentence list
-          ─→ word_tokenize()         →  word/punctuation tokens
+          ─→ word_tokenize() per sentence  →  word tokens per sentence
           ─→ lowercase + alpha filter →  clean word tokens
-          ─→ Export tokens.txt
+          ─→ Export tokens.txt  (one sentence per line, tokens separated by |)
 
     Returns:
         sentences   : list of sentence strings
-        word_tokens : list of clean lowercase word tokens (alpha only)
+        word_tokens : flat list of clean lowercase word tokens (alpha only)
     """
     log.info("Stage 1 ▸ Tokenization …")
     t0 = time.time()
@@ -170,37 +170,25 @@ def stage_tokenization(raw_text: str, output_dir: Path) -> Tuple[List[str], List
     sentences = sent_tokenize(raw_text)
     log.info(f"  Sentences detected: {len(sentences):,}")
 
-    # ── Word tokenization (includes punctuation) ──────────────────────────────
-    all_tokens = word_tokenize(raw_text)
-    log.info(f"  All tokens (incl. punctuation): {len(all_tokens):,}")
+    # ── Per-sentence word tokenization ────────────────────────────────────────
+    word_tokens = []          # flat list for downstream stages
+    sent_tokens = []          # list of lists for file export
 
-    # ── Clean tokens: lowercase alphabetic words only ─────────────────────────
-    word_tokens = [tok.lower() for tok in all_tokens if tok.isalpha()]
+    for sent in sentences:
+        raw_toks   = word_tokenize(sent)
+        clean_toks = [tok.lower() for tok in raw_toks if tok.isalpha()]
+        sent_tokens.append(clean_toks)
+        word_tokens.extend(clean_toks)
+
     log.info(f"  Clean word tokens (alpha, lowercase): {len(word_tokens):,}")
 
     # ── Export ────────────────────────────────────────────────────────────────
+    #   Each line = one sentence's word tokens, separated by " | "
     out_path = output_dir / CONFIG["tokens_file"]
     with open(out_path, "w", encoding=CONFIG["encoding"]) as fh:
-        fh.write("=" * 72 + "\n")
-        fh.write("TOKENIZATION OUTPUT — NLP PREPROCESSING PIPELINE\n")
-        fh.write("=" * 72 + "\n\n")
-        fh.write(f"Total sentences : {len(sentences):,}\n")
-        fh.write(f"Total tokens    : {len(all_tokens):,}\n")
-        fh.write(f"Clean tokens    : {len(word_tokens):,}\n\n")
-
-        fh.write("─" * 72 + "\n")
-        fh.write("SENTENCE TOKENS\n")
-        fh.write("─" * 72 + "\n")
-        for i, sent in enumerate(sentences, 1):
-            fh.write(f"[S{i:05d}] {sent.strip()}\n")
-
-        fh.write("\n" + "─" * 72 + "\n")
-        fh.write("WORD TOKENS (clean, lowercase)\n")
-        fh.write("─" * 72 + "\n")
-        # Write 10 tokens per line for readability
-        for i in range(0, len(word_tokens), 10):
-            chunk = word_tokens[i : i + 10]
-            fh.write("  " + "  |  ".join(chunk) + "\n")
+        for toks in sent_tokens:
+            if toks:                               # skip empty sentences
+                fh.write(" | ".join(toks) + "\n")
 
     log.info(f"  ✓ Exported → {out_path}")
     log.info(f"  Stage 1 completed in {time.time() - t0:.2f}s")
@@ -378,32 +366,9 @@ def stage_ngram_modeling(word_tokens: List[str], output_dir: Path) -> List[Tuple
     # ── Export ─────────────────────────────────────────────────────────────────
     out_path = output_dir / CONFIG["ngram_file"]
     with open(out_path, "w", encoding=CONFIG["encoding"]) as fh:
-        fh.write("=" * 72 + "\n")
-        fh.write(f"N-GRAM MODELING OUTPUT — {ngram_type.upper()} MODEL\n")
-        fh.write("=" * 72 + "\n\n")
-        fh.write(f"N-gram type        : {ngram_type} (n={n})\n")
-        fh.write(f"Input tokens       : {len(word_tokens):,}\n")
-        fh.write(f"Post-filter tokens : {len(filtered):,}\n")
-        fh.write(f"Total {ngram_type}s      : {len(gram_list):,}\n")
-        fh.write(f"Unique {ngram_type}s     : {ngram_freq.B():,}\n\n")
-
-        fh.write("─" * 72 + "\n")
-        fh.write(f"TOP {top_n} {ngram_type.upper()}S BY FREQUENCY\n")
-        fh.write("─" * 72 + "\n")
-        fh.write(f"{'Rank':<6}{'N-gram':<40}{'Count':>8}{'%Total':>10}\n")
-        fh.write("─" * 72 + "\n")
-
-        total_ngrams = len(gram_list)
-        for rank, (gram, count) in enumerate(most_common, 1):
-            gram_str = " ".join(gram)
-            pct      = (count / total_ngrams) * 100
-            fh.write(f"{rank:<6}{gram_str:<40}{count:>8,}{pct:>9.4f}%\n")
-
-        fh.write("\n" + "─" * 72 + "\n")
-        fh.write("ALL UNIQUE N-GRAMS (sorted by frequency)\n")
-        fh.write("─" * 72 + "\n")
+        # Write only unique n-grams — one per line, sorted by frequency
         for gram, count in ngram_freq.most_common():
-            fh.write(f"{' '.join(gram)}\t{count}\n")
+            fh.write(" ".join(gram) + "\n")
 
     log.info(f"  ✓ Exported → {out_path}")
     log.info(f"  Stage 3 completed in {time.time() - t0:.2f}s")
@@ -413,16 +378,18 @@ def stage_ngram_modeling(word_tokens: List[str], output_dir: Path) -> List[Tuple
 # ─────────────────────────────────────────────────────────────────────────────
 # STAGE 4  ·  LEMMATIZATION
 # ─────────────────────────────────────────────────────────────────────────────
-def stage_lemmatization(word_tokens: List[str], output_dir: Path) -> List[str]:
+def stage_lemmatization(sentences: List[str], word_tokens: List[str],
+                        output_dir: Path) -> List[str]:
     """
     Lemmatize all clean word tokens using NLTK WordNetLemmatizer.
 
     Pipeline:
-        word_tokens
+        sentences
+          ─→ word_tokenize() per sentence
           ─→ pos_tag()                →  (word, POS) pairs
           ─→ POS → WordNet tag map    →  convert Penn Treebank → WordNet POS
           ─→ WordNetLemmatizer()      →  canonical base forms
-          ─→ Export lemma.txt
+          ─→ Export lemma.txt  (one sentence per line, lemmas separated by |)
 
     Note:
         POS-aware lemmatisation is significantly more accurate than
@@ -430,7 +397,7 @@ def stage_lemmatization(word_tokens: List[str], output_dir: Path) -> List[str]:
         vs "running" → "running" (default noun fallback).
 
     Returns:
-        List of lemmatized tokens
+        Flat list of lemmatized tokens
     """
     log.info("Stage 4 ▸ Lemmatization …")
     t0 = time.time()
@@ -447,50 +414,38 @@ def stage_lemmatization(word_tokens: List[str], output_dir: Path) -> List[str]:
         elif treebank_tag.startswith("R"): return wordnet.ADV
         else:                              return wordnet.NOUN   # default
 
-    # ── POS-aware lemmatisation ────────────────────────────────────────────────
-    log.info("  POS tagging tokens … (this may take a moment for large corpora)")
-    tagged = pos_tag(word_tokens)
+    # ── Per-sentence POS-aware lemmatisation ──────────────────────────────────
+    log.info("  POS tagging and lemmatising per sentence …")
+    lemmas         = []       # flat list for downstream stages
+    sent_lemmas    = []       # list of lists for file export
+    changed        = 0
 
-    lemmas = []
-    changed = 0
-    for word, tag in tagged:
-        wn_tag = get_wordnet_pos(tag)
-        lemma  = lemmatizer.lemmatize(word, pos=wn_tag)
-        lemmas.append(lemma)
-        if lemma != word:
-            changed += 1
+    for sent in sentences:
+        raw_toks   = word_tokenize(sent)
+        clean_toks = [tok.lower() for tok in raw_toks if tok.isalpha()]
+        if not clean_toks:
+            continue
+        tagged = pos_tag(clean_toks)
+        cur_lemmas = []
+        for word, tag in tagged:
+            wn_tag = get_wordnet_pos(tag)
+            lemma  = lemmatizer.lemmatize(word, pos=wn_tag)
+            cur_lemmas.append(lemma)
+            lemmas.append(lemma)
+            if lemma != word:
+                changed += 1
+        sent_lemmas.append(cur_lemmas)
 
     pct_changed = (changed / len(word_tokens)) * 100 if word_tokens else 0
     log.info(f"  Tokens lemmatized  : {len(lemmas):,}")
     log.info(f"  Forms changed      : {changed:,}  ({pct_changed:.1f}%)")
 
-    # ── Build change examples ─────────────────────────────────────────────────
-    examples = [(w, l, t) for (w, t), l in zip(tagged, lemmas) if w != l][:20]
-
     # ── Export ─────────────────────────────────────────────────────────────────
+    #   Each line = one sentence's lemmatised tokens, separated by " | "
     out_path = output_dir / CONFIG["lemma_file"]
     with open(out_path, "w", encoding=CONFIG["encoding"]) as fh:
-        fh.write("=" * 72 + "\n")
-        fh.write("LEMMATIZATION OUTPUT — NLP PREPROCESSING PIPELINE\n")
-        fh.write("=" * 72 + "\n\n")
-        fh.write(f"Lemmatizer         : NLTK WordNetLemmatizer (POS-aware)\n")
-        fh.write(f"Total tokens       : {len(word_tokens):,}\n")
-        fh.write(f"Forms changed      : {changed:,} ({pct_changed:.1f}%)\n\n")
-
-        fh.write("─" * 72 + "\n")
-        fh.write("SAMPLE TRANSFORMATIONS (original → lemma, POS tag)\n")
-        fh.write("─" * 72 + "\n")
-        fh.write(f"{'Original':<20}{'POS':<8}{'Lemma':<20}\n")
-        fh.write("─" * 72 + "\n")
-        for orig, lem, tag in examples:
-            fh.write(f"{orig:<20}{tag:<8}{lem:<20}\n")
-
-        fh.write("\n" + "─" * 72 + "\n")
-        fh.write("FULL LEMMATIZED TOKEN SEQUENCE\n")
-        fh.write("─" * 72 + "\n")
-        for i in range(0, len(lemmas), 10):
-            chunk = lemmas[i : i + 10]
-            fh.write("  " + "  |  ".join(chunk) + "\n")
+        for lems in sent_lemmas:
+            fh.write(" | ".join(lems) + "\n")
 
     log.info(f"  ✓ Exported → {out_path}")
     log.info(f"  Stage 4 completed in {time.time() - t0:.2f}s")
@@ -532,43 +487,9 @@ def stage_vocabulary(word_tokens: List[str], lemmas: List[str], output_dir: Path
     # ── Export ─────────────────────────────────────────────────────────────────
     out_path = output_dir / CONFIG["vocab_file"]
     with open(out_path, "w", encoding=CONFIG["encoding"]) as fh:
-        fh.write("=" * 72 + "\n")
-        fh.write("VOCABULARY OUTPUT — NLP PREPROCESSING PIPELINE\n")
-        fh.write("=" * 72 + "\n\n")
-        fh.write(f"Total tokens (running words) : {len(word_tokens):,}\n")
-        fh.write(f"Raw vocabulary (types)       : {vocab_size_raw:,}\n")
-        fh.write(f"Lemma vocabulary (types)     : {vocab_size_lemma:,}\n")
-        fh.write(f"Type–Token Ratio (TTR)       : {ttr:.4f}\n")
-        fh.write(f"Reduction after lemmatisation: "
-                 f"{vocab_size_raw - vocab_size_lemma:,} forms\n\n")
-
-        fh.write("─" * 72 + "\n")
-        fh.write("VOCABULARY — FREQUENCY RANKED (raw tokens)\n")
-        fh.write("─" * 72 + "\n")
-        fh.write(f"{'Rank':<6}{'Word':<30}{'Count':>8}{'Cumul.%':>10}\n")
-        fh.write("─" * 72 + "\n")
-
-        total_tokens = len(word_tokens)
-        cumul = 0
-        for rank, (word, count) in enumerate(freq_counter.most_common(), 1):
-            cumul += count
-            cumul_pct = (cumul / total_tokens) * 100
-            fh.write(f"{rank:<6}{word:<30}{count:>8,}{cumul_pct:>9.2f}%\n")
-
-        fh.write("\n" + "─" * 72 + "\n")
-        fh.write("ALPHABETICAL VOCABULARY LIST (raw)\n")
-        fh.write("─" * 72 + "\n")
-        cols = 4
-        rows = [raw_vocab[i:i+cols] for i in range(0, len(raw_vocab), cols)]
-        for row in rows:
-            fh.write("  " + "   ".join(f"{w:<20}" for w in row) + "\n")
-
-        fh.write("\n" + "─" * 72 + "\n")
-        fh.write("LEMMA VOCABULARY (alphabetical)\n")
-        fh.write("─" * 72 + "\n")
-        rows = [lemma_vocab[i:i+cols] for i in range(0, len(lemma_vocab), cols)]
-        for row in rows:
-            fh.write("  " + "   ".join(f"{w:<20}" for w in row) + "\n")
+        # Write only unique words — one word per line, alphabetically sorted
+        for word in raw_vocab:
+            fh.write(word + "\n")
 
     log.info(f"  ✓ Exported → {out_path}")
     log.info(f"  Stage 5 completed in {time.time() - t0:.2f}s")
@@ -653,7 +574,7 @@ def main():
     ngrams_result = stage_ngram_modeling(word_tokens, output_dir)
 
     # Stage 4: Lemmatization
-    lemmas = stage_lemmatization(word_tokens, output_dir)
+    lemmas = stage_lemmatization(sentences, word_tokens, output_dir)
 
     # Stage 5: Vocabulary
     vocab_stats = stage_vocabulary(word_tokens, lemmas, output_dir)

@@ -256,7 +256,7 @@ The ratio of clean word tokens to total tokens reflects the density of non-alpha
 
 #### (d) Output File
 Present: **`nlp_output/tokens.txt`**  
-Contains: total sentence count, total token count, all sentences labelled `[S00001]` onward, and all clean word tokens printed 10 per line.
+Contains: one sentence per line, with each word token separated by `|`. Each line represents a tokenized sentence from the corpus — showing how raw text is decomposed into individual word units (lowercase, alphabetic only).
 
 ---
 
@@ -323,7 +323,7 @@ The total number of unique bigrams relative to total bigrams (the bigram type-to
 
 #### (d) Output File
 Present: **`nlp_output/n-gram.txt`**  
-Contains: bigram type/token counts, top 50 bigrams ranked by frequency with percentage, and the full unique bigram list with counts.
+Contains: one unique bigram per line (e.g., `stock market`), sorted by frequency (most common first). No counts, no rankings — purely the n-gram list. Top 50 analysis with counts and percentages is discussed in the observation above.
 
 ---
 
@@ -361,7 +361,7 @@ The number of tokens whose form changed during lemmatization relative to the tot
 
 #### (d) Output File
 Present: **`nlp_output/lemma.txt`**  
-Contains: total tokens, number of forms changed, a sample transformation table (original → POS → lemma), and the full lemmatized token sequence.
+Contains: one sentence per line, with each lemmatized token separated by `|`. The structure mirrors `tokens.txt` so that the original tokens and their lemmatized base forms can be compared side-by-side (e.g., `prices → price`, `are → be`, `realizing → realize`).
 
 ---
 
@@ -387,7 +387,7 @@ After lemmatization, the vocabulary size reduces, reflecting the successful merg
 
 #### (c) Output File
 Present: **`nlp_output/vocab.txt`**  
-Contains: total tokens, raw and lemma vocabulary sizes, TTR, vocabulary sorted by frequency rank with cumulative percentage, alphabetical raw vocabulary, and alphabetical lemma vocabulary.
+Contains: one unique word per line, sorted alphabetically. No rank, no count, no cumulative percentage — purely the vocabulary list. Statistics such as TTR, vocabulary size, and lemma reduction are discussed in the observation above.
 
 ---
 
